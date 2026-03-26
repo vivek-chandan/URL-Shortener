@@ -1,0 +1,16 @@
+{
+  "server": {
+    "port": 8080,
+    "threads": 2
+  },
+  "database": {
+    "path": "urls.db"
+  },
+  "cache": {
+    "size": 1000
+  },
+  "rate_limit": {
+    "max_requests": 100,
+    "window_seconds": 60
+  }
+}
