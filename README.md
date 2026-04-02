@@ -143,3 +143,51 @@ Get analytics:
 ```bash
 curl http://localhost:8080/analytics/<code>
 ```
+
+## Troubleshooting
+
+If a request appears stuck, use timeout mode so `curl` exits quickly:
+
+```bash
+curl -m 3 -v http://localhost:8080/health
+```
+
+Check for multiple running server processes:
+
+```bash
+pgrep -af url-shortener
+```
+
+If needed, stop old server processes and start one fresh instance:
+
+```bash
+pkill -f url-shortener
+/workspaces/URL-Shortener/build/url-shortener
+```
+
+Verify click count end-to-end:
+
+```bash
+# Run server in a separate terminal first:
+# /workspaces/URL-Shortener/build/url-shortener
+
+# 1) Create short URL
+resp=$(curl -s -X POST http://localhost:8080/shorten \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com/long/url"}')
+echo "$resp"
+
+# 2) Extract code
+code=$(echo "$resp" | sed -n 's/.*"code":"\([^"]*\)".*/\1/p')
+echo "CODE=$code"
+
+# 3) Trigger a redirect click
+curl -s -o /dev/null -w "status=%{http_code}\n" "http://localhost:8080/$code"
+
+# 4) Read analytics
+curl -s "http://localhost:8080/analytics/$code"
+echo
+
+# Optional (if jq is installed):
+# code=$(echo "$resp" | jq -r '.code')
+```

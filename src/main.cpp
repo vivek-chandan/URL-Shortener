@@ -1,6 +1,7 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <filesystem>
 #include "server.h"
 #include <nlohmann/json.hpp>
 
@@ -15,9 +16,18 @@ using json = nlohmann::json;
  * @return true if successful, false otherwise
  */
 bool loadConfig(const std::string& config_path, int& port, size_t& cache_size, std::string& db_path) {
-    std::ifstream config_file(config_path);
+    std::filesystem::path resolved_path = config_path;
+
+    if (!std::filesystem::exists(resolved_path)) {
+        std::filesystem::path alt_path = std::filesystem::path("..") / config_path;
+        if (std::filesystem::exists(alt_path)) {
+            resolved_path = alt_path;
+        }
+    }
+
+    std::ifstream config_file(resolved_path);
     if (!config_file.is_open()) {
-        std::cerr << "Failed to open config file: " << config_path << std::endl;
+        std::cerr << "Failed to open config file: " << resolved_path.string() << std::endl;
         return false;
     }
 
@@ -25,11 +35,30 @@ bool loadConfig(const std::string& config_path, int& port, size_t& cache_size, s
         json config;
         config_file >> config;
 
-        port = config.value("port", 8080);
-        cache_size = config.value("cache_size", 1000);
-        db_path = config.value("database_path", "urls.db");
+        // Support nested config format:
+        // {
+        //   "server": {"port": 8080},
+        //   "database": {"path": "urls.db"},
+        //   "cache": {"size": 1000}
+        // }
+        if (config.contains("server") && config["server"].is_object()) {
+            port = config["server"].value("port", port);
+        }
+        if (config.contains("cache") && config["cache"].is_object()) {
+            cache_size = config["cache"].value("size", cache_size);
+        }
+        if (config.contains("database") && config["database"].is_object()) {
+            db_path = config["database"].value("path", db_path);
+        }
+
+        // Backward-compatible support for flat config format:
+        // {"port": 8080, "cache_size": 1000, "database_path": "urls.db"}
+        port = config.value("port", port);
+        cache_size = config.value("cache_size", cache_size);
+        db_path = config.value("database_path", db_path);
 
         std::cout << "Config loaded:" << std::endl;
+        std::cout << "  Path: " << resolved_path.string() << std::endl;
         std::cout << "  Port: " << port << std::endl;
         std::cout << "  Cache Size: " << cache_size << std::endl;
         std::cout << "  Database: " << db_path << std::endl;

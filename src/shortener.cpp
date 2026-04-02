@@ -22,14 +22,15 @@ std::string encodeBase62(int num) {
 URLShortener::URLShortener(std::shared_ptr<Database> db) 
     : db_(db) {}
 
-std::string URLShortener::encodeBase62(int id) {
-    if (id == 0) return "a";
+std::string URLShortener::encodeBase62(int num) {
+    if (num == 0) return "a";
 
     std::string result;
-    while (id > 0) {
-        result = BASE62_CHARS[id % BASE62_SIZE] + result;
-        id /= BASE62_SIZE;
+     while (num > 0) {
+        result += BASE62[num % 62];
+        num /= 62;
     }
+     std::reverse(result.begin(), result.end());
     return result;
 }
 

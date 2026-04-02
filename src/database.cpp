@@ -194,6 +194,28 @@ bool Database::incrementClickCount(const std::string& short_code, std::string& l
 
     if (!db_) return false;
 
+    // Fetch long URL inside the same critical section to avoid nested locking.
+    {
+        std::string fetch_sql = "SELECT long_url FROM urls WHERE short_code = ?;";
+        sqlite3_stmt* fetch_stmt;
+
+        int fetch_rc = sqlite3_prepare_v2(db_, fetch_sql.c_str(), -1, &fetch_stmt, nullptr);
+        if (fetch_rc != SQLITE_OK) return false;
+
+        sqlite3_bind_text(fetch_stmt, 1, short_code.c_str(), -1, SQLITE_STATIC);
+        fetch_rc = sqlite3_step(fetch_stmt);
+
+        if (fetch_rc == SQLITE_ROW) {
+            const unsigned char* text = sqlite3_column_text(fetch_stmt, 0);
+            long_url = text ? reinterpret_cast<const char*>(text) : "";
+        } else {
+            sqlite3_finalize(fetch_stmt);
+            return false;
+        }
+
+        sqlite3_finalize(fetch_stmt);
+    }
+
     std::string now = getCurrentTimestamp();
     std::string sql = "UPDATE urls SET click_count = click_count + 1, last_accessed = ? WHERE short_code = ?;";
     sqlite3_stmt* stmt;
@@ -207,16 +229,7 @@ bool Database::incrementClickCount(const std::string& short_code, std::string& l
     rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
 
-    if (rc != SQLITE_DONE) return false;
-
-    // Now get the long URL
-    URLRecord record;
-    if (getURLByCode(short_code, record)) {
-        long_url = record.long_url;
-        return true;
-    }
-
-    return false;
+    return rc == SQLITE_DONE;
 }
 
 bool Database::getAnalytics(const std::string& short_code, URLRecord& record) {
