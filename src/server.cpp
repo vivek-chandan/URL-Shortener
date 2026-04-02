@@ -39,13 +39,13 @@ void URLShortenerServer::initializeLogging() {
 }
 
 // Get client IP
-std::string URLShortenerServer::getClientIP(const crow::request& req) {
-    if (req.headers.count("x-forwarded-for")) {
+std::string URLShortenerServer::getClientIP(const httplib::Request& req) {
+    if (req.has_header("x-forwarded-for")) {
         std::string forwarded = req.get_header_value("x-forwarded-for");
         size_t pos = forwarded.find(',');
         return forwarded.substr(0, pos);
     }
-    return req.remote_ip_address;
+    return req.remote_addr;
 }
 
 // Logging function
@@ -78,11 +78,6 @@ bool URLShortenerServer::initialize() {
 
     log("INFO", "Database initialized successfully");
 
-    int deleted = shortener_->cleanupExpiredURLs();
-    if (deleted > 0) {
-        log("INFO", "Cleaned expired URLs: " + std::to_string(deleted));
-    }
-
     return true;
 }
 
@@ -90,8 +85,7 @@ bool URLShortenerServer::initialize() {
 void URLShortenerServer::start() {
 
     // Root endpoint with API usage information
-    CROW_ROUTE(app_, "/")
-    ([this]() {
+    server_.Get("/", [this](const httplib::Request&, httplib::Response& res) {
         json resp = {
             {"service", "URL Shortener"},
             {"status", "running"},
@@ -107,34 +101,39 @@ void URLShortenerServer::start() {
             }}
         };
 
-        return crow::response(200, resp.dump());
+        res.status = 200;
+        res.set_content(resp.dump(), "application/json");
     });
 
     // Health endpoint
-    CROW_ROUTE(app_, "/health")
-    ([this]() {
-        return crow::response(200, "{\"status\":\"ok\"}");
+    server_.Get("/health", [this](const httplib::Request&, httplib::Response& res) {
+        res.status = 200;
+        res.set_content("{\"status\":\"ok\"}", "application/json");
     });
 
     // Stats endpoint
-    CROW_ROUTE(app_, "/stats")
-    ([this]() {
-        return crow::response(200, "{\"service\":\"URL Shortener\"}");
+    server_.Get("/stats", [this](const httplib::Request&, httplib::Response& res) {
+        res.status = 200;
+        res.set_content("{\"service\":\"URL Shortener\"}", "application/json");
     });
 
     // Analytics endpoint
-    CROW_ROUTE(app_, "/analytics/<string>")
-    ([this](const crow::request& req, const std::string& code) {
+    server_.Get(R"(/analytics/([A-Za-z0-9]+))", [this](const httplib::Request& req, httplib::Response& res) {
+        std::string code = req.matches[1];
         std::string client_ip = getClientIP(req);
         if (!rate_limiter_->isAllowed(client_ip)) {
-            return crow::response(429, "Rate limit exceeded");
+            res.status = 429;
+            res.set_content("Rate limit exceeded", "text/plain");
+            return;
         }
 
         int clicks;
         std::string created_at, last_accessed;
 
         if (!shortener_->getCodeInfo(code, clicks, created_at, last_accessed)) {
-            return crow::response(404, "{\"error\":\"Short URL not found\"}");
+            res.status = 404;
+            res.set_content("{\"error\":\"Short URL not found\"}", "application/json");
+            return;
         }
 
         json resp = {
@@ -144,35 +143,47 @@ void URLShortenerServer::start() {
             {"last_accessed", last_accessed}
         };
 
-        return crow::response(200, resp.dump());
+        res.status = 200;
+        res.set_content(resp.dump(), "application/json");
     });
 
     // Shorten URL endpoint
-    CROW_ROUTE(app_, "/shorten").methods("POST"_method)
-    ([this](const crow::request& req) {
+    server_.Post("/shorten", [this](const httplib::Request& req, httplib::Response& res) {
         std::string client_ip = getClientIP(req);
         if (!rate_limiter_->isAllowed(client_ip)) {
-            return crow::response(429, "Rate limit exceeded");
+            res.status = 429;
+            res.set_content("Rate limit exceeded", "text/plain");
+            return;
         }
 
-        auto body = crow::json::load(req.body);
-        if (!body || !body.has("url")) {
-            return crow::response(400, "{\"error\":\"Invalid JSON\"}");
+        json body;
+        try {
+            body = json::parse(req.body);
+        } catch (...) {
+            res.status = 400;
+            res.set_content("{\"error\":\"Invalid JSON\"}", "application/json");
+            return;
         }
 
-        std::string long_url = body["url"].s();
-        int expiry_days = 0;
-        if (body.has("expiry_days")) {
-            expiry_days = body["expiry_days"].i();
+        if (!body.contains("url") || !body["url"].is_string()) {
+            res.status = 400;
+            res.set_content("{\"error\":\"Invalid JSON\"}", "application/json");
+            return;
         }
+
+        std::string long_url = body["url"].get<std::string>();
 
         if (!URLShortener::isValidURL(long_url)) {
-            return crow::response(400, "{\"error\":\"Invalid URL\"}");
+            res.status = 400;
+            res.set_content("{\"error\":\"Invalid URL\"}", "application/json");
+            return;
         }
 
         std::string short_code;
-        if (!shortener_->shortenURL(long_url, expiry_days, short_code)) {
-            return crow::response(500, "{\"error\":\"Failed to shorten URL\"}");
+        if (!shortener_->shortenURL(long_url, short_code)) {
+            res.status = 500;
+            res.set_content("{\"error\":\"Failed to shorten URL\"}", "application/json");
+            return;
         }
 
         url_cache_->put(short_code, long_url);
@@ -185,16 +196,20 @@ void URLShortenerServer::start() {
             {"code", short_code}
         };
 
-        return crow::response(200, resp.dump());
+        res.status = 200;
+        res.set_content(resp.dump(), "application/json");
     });
 
     // Redirect endpoint (KEEP LAST)
-    CROW_ROUTE(app_, "/<string>")
-    ([this](const crow::request& req, const std::string& code) {
+    server_.Get(R"(/([A-Za-z0-9]+))", [this](const httplib::Request& req, httplib::Response& res) {
+
+        std::string code = req.matches[1];
 
         std::string client_ip = getClientIP(req);
         if (!rate_limiter_->isAllowed(client_ip)) {
-            return crow::response(429, "Rate limit exceeded");
+            res.status = 429;
+            res.set_content("Rate limit exceeded", "text/plain");
+            return;
         }
 
         std::string long_url;
@@ -204,14 +219,16 @@ void URLShortenerServer::start() {
             std::string dummy;
             db_->incrementClickCount(code, dummy);
 
-            crow::response resp(302);
-            resp.set_header("Location", long_url);
-            return resp;
+            res.status = 302;
+            res.set_header("Location", long_url);
+            return;
         }
 
         // Check database
         if (!shortener_->getLongURL(code, long_url)) {
-            return crow::response(404, "{\"error\":\"Short URL not found\"}");
+            res.status = 404;
+            res.set_content("{\"error\":\"Short URL not found\"}", "application/json");
+            return;
         }
 
         url_cache_->put(code, long_url);
@@ -219,17 +236,19 @@ void URLShortenerServer::start() {
         std::string dummy;
         db_->incrementClickCount(code, dummy);
 
-        crow::response resp(302);
-        resp.set_header("Location", long_url);
-        return resp;
+        res.status = 302;
+        res.set_header("Location", long_url);
     });
 
     log("INFO", "Starting server on port " + std::to_string(port_));
-    app_.port(port_).multithreaded().run();
+    server_.new_task_queue = [] {
+        return new httplib::ThreadPool(8);
+    };
+    server_.listen("0.0.0.0", port_);
 }
 
 // Stop server
 void URLShortenerServer::stop() {
     log("INFO", "Stopping server");
-    app_.stop();
+    server_.stop();
 }

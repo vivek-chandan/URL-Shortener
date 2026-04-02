@@ -17,7 +17,6 @@ struct URLRecord {
     int click_count;
     std::string created_at;
     std::string last_accessed;
-    std::string expiry;
 };
 
 /**
@@ -26,7 +25,6 @@ struct URLRecord {
  * Handles all database operations including:
  * - URL storage and retrieval
  * - Click count tracking
- * - Expiry management
  * - Thread-safe operations
  */
 class Database {
@@ -61,10 +59,9 @@ public:
      * @brief Insert new URL record
      * @param long_url The original long URL
      * @param short_code The generated short code
-     * @param expiry_days Number of days until expiry (0 = no expiry)
      * @return Database ID of inserted record, -1 on failure
      */
-    int insertURL(const std::string& long_url, const std::string& short_code, int expiry_days);
+    int insertURL(const std::string& long_url, const std::string& short_code);
 
     /**
      * @brief Retrieve URL record by short code
@@ -83,10 +80,10 @@ public:
     bool getURLByID(int id, URLRecord& record);
 
     /**
-     * @brief Get active short code by long URL (ignores expired records)
+     * @brief Get short code by long URL
      * @param long_url The original long URL
      * @param short_code Reference to store found short code
-     * @return true if active mapping exists, false otherwise
+     * @return true if mapping exists, false otherwise
      */
     bool getActiveCodeByLongURL(const std::string& long_url, std::string& short_code);
 
@@ -105,12 +102,6 @@ public:
      * @return true if found, false otherwise
      */
     bool getAnalytics(const std::string& short_code, URLRecord& record);
-
-    /**
-     * @brief Delete expired URLs
-     * @return Number of records deleted
-     */
-    int deleteExpiredURLs();
 
     /**
      * @brief Delete URL by short code

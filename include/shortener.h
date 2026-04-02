@@ -59,11 +59,10 @@ public:
     /**
      * @brief Create shortened URL
      * @param long_url The original URL
-     * @param expiry_days Number of days until expiry (0 = no expiry)
      * @param short_code Reference to store generated short code
      * @return true if successful, false otherwise
      */
-    bool shortenURL(const std::string& long_url, int expiry_days, std::string& short_code);
+    bool shortenURL(const std::string& long_url, std::string& short_code);
 
     /**
      * @brief Get original URL by short code
@@ -91,9 +90,4 @@ public:
      */
     bool deleteShortURL(const std::string& short_code);
 
-    /**
-     * @brief Clean up expired URLs
-     * @return Number of URLs deleted
-     */
-    int cleanupExpiredURLs();
 };

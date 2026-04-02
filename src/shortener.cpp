@@ -2,9 +2,6 @@
 #include "database.h"
 #include <regex>
 #include <algorithm>
-#include <ctime>
-#include <sstream>
-#include <iomanip>
 #include <random>
 
 static const std::string BASE62 =
@@ -59,7 +56,7 @@ bool URLShortener::isValidURL(const std::string& url) {
     return std::regex_match(url, url_regex);
 }
 
-bool URLShortener::shortenURL(const std::string& long_url, int expiry_days, std::string& short_code) {
+bool URLShortener::shortenURL(const std::string& long_url, std::string& short_code) {
     // Validate URL
     if (!isValidURL(long_url)) {
         return false;
@@ -80,7 +77,7 @@ bool URLShortener::shortenURL(const std::string& long_url, int expiry_days, std:
             continue;
         }
 
-        int db_id = db_->insertURL(long_url, short_code, expiry_days);
+        int db_id = db_->insertURL(long_url, short_code);
         if (db_id != -1) {
             return true;
         }
@@ -107,21 +104,6 @@ bool URLShortener::getLongURL(const std::string& short_code, std::string& long_u
         return false;
     }
 
-    // Check if expired
-    if (!record.expiry.empty()) {
-        auto now = std::time(nullptr);
-        auto tm = *std::localtime(&now);
-        std::ostringstream oss;
-        oss << std::put_time(&tm, "%Y-%m-%d %H:%M:%S");
-        std::string current_time = oss.str();
-
-        if (current_time > record.expiry) {
-            // URL has expired
-            db_->deleteURL(short_code);
-            return false;
-        }
-    }
-
     long_url = record.long_url;
     return true;
 }
@@ -141,8 +123,4 @@ bool URLShortener::getCodeInfo(const std::string& short_code, int& clicks,
 
 bool URLShortener::deleteShortURL(const std::string& short_code) {
     return db_->deleteURL(short_code);
-}
-
-int URLShortener::cleanupExpiredURLs() {
-    return db_->deleteExpiredURLs();
 }

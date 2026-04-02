@@ -1,6 +1,6 @@
 #pragma once
 
-#include <crow.h>
+#include "httplib.h"
 #include <memory>
 #include <string>
 
@@ -16,8 +16,8 @@ private:
     int port_;
     size_t cache_size_;
 
-    // Crow App
-    crow::SimpleApp app_;
+    // HTTP server
+    httplib::Server server_;
 
     // Components
     std::shared_ptr<Database> db_;
@@ -27,15 +27,8 @@ private:
 
     // Helpers
     void initializeLogging();
-    std::string getClientIP(const crow::request& req);
+    std::string getClientIP(const httplib::Request& req);
     void log(const std::string& level, const std::string& message);
-
-    // Route handlers
-    crow::response handleShorten(const crow::request& req);
-    crow::response handleRedirect(const std::string& code);
-    crow::response handleAnalytics(const std::string& code);
-    crow::response handleStats();
-    crow::response handleHealth();
 
 public:
     URLShortenerServer(int port,

@@ -46,7 +46,6 @@ __pycache__/
 *$py.class
 
 # Dependencies
-third_party/crow/
 third_party/nlohmann/
 
 # Test outputs

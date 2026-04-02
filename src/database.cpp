@@ -38,8 +38,7 @@ bool Database::initialize() {
             short_code TEXT UNIQUE NOT NULL,
             click_count INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_accessed TIMESTAMP,
-            expiry TIMESTAMP
+            last_accessed TIMESTAMP
         );
     )";
 
@@ -54,24 +53,14 @@ bool Database::initialize() {
     return true;
 }
 
-int Database::insertURL(const std::string& long_url, const std::string& short_code, int expiry_days) {
+int Database::insertURL(const std::string& long_url, const std::string& short_code) {
     std::lock_guard<std::mutex> guard(db_lock_);
 
     if (!db_) return -1;
 
     std::string created_at = getCurrentTimestamp();
-    std::string expiry = "";
-    
-    if (expiry_days > 0) {
-        auto now = std::time(nullptr);
-        auto expiry_time = now + (expiry_days * 24 * 3600);
-        auto tm = *std::localtime(&expiry_time);
-        std::ostringstream oss;
-        oss << std::put_time(&tm, "%Y-%m-%d %H:%M:%S");
-        expiry = oss.str();
-    }
 
-    std::string sql = "INSERT INTO urls (long_url, short_code, created_at, expiry) VALUES (?, ?, ?, ?);";
+    std::string sql = "INSERT INTO urls (long_url, short_code, created_at) VALUES (?, ?, ?);";
     sqlite3_stmt* stmt;
 
     int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
@@ -83,11 +72,6 @@ int Database::insertURL(const std::string& long_url, const std::string& short_co
     sqlite3_bind_text(stmt, 1, long_url.c_str(), -1, SQLITE_STATIC);
     sqlite3_bind_text(stmt, 2, short_code.c_str(), -1, SQLITE_STATIC);
     sqlite3_bind_text(stmt, 3, created_at.c_str(), -1, SQLITE_STATIC);
-    if (!expiry.empty()) {
-        sqlite3_bind_text(stmt, 4, expiry.c_str(), -1, SQLITE_STATIC);
-    } else {
-        sqlite3_bind_null(stmt, 4);
-    }
 
     rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -105,7 +89,7 @@ bool Database::getURLByCode(const std::string& short_code, URLRecord& record) {
 
     if (!db_) return false;
 
-    std::string sql = "SELECT id, long_url, short_code, click_count, created_at, last_accessed, expiry FROM urls WHERE short_code = ?;";
+    std::string sql = "SELECT id, long_url, short_code, click_count, created_at, last_accessed FROM urls WHERE short_code = ?;";
     sqlite3_stmt* stmt;
 
     int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
@@ -129,12 +113,6 @@ bool Database::getURLByCode(const std::string& short_code, URLRecord& record) {
         } else {
             record.last_accessed = "";
         }
-        
-        if (sqlite3_column_type(stmt, 6) != SQLITE_NULL) {
-            record.expiry = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6));
-        } else {
-            record.expiry = "";
-        }
 
         sqlite3_finalize(stmt);
         return true;
@@ -149,7 +127,7 @@ bool Database::getURLByID(int id, URLRecord& record) {
 
     if (!db_) return false;
 
-    std::string sql = "SELECT id, long_url, short_code, click_count, created_at, last_accessed, expiry FROM urls WHERE id = ?;";
+    std::string sql = "SELECT id, long_url, short_code, click_count, created_at, last_accessed FROM urls WHERE id = ?;";
     sqlite3_stmt* stmt;
 
     int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
@@ -170,12 +148,6 @@ bool Database::getURLByID(int id, URLRecord& record) {
         } else {
             record.last_accessed = "";
         }
-        
-        if (sqlite3_column_type(stmt, 6) != SQLITE_NULL) {
-            record.expiry = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6));
-        } else {
-            record.expiry = "";
-        }
 
         sqlite3_finalize(stmt);
         return true;
@@ -190,10 +162,9 @@ bool Database::getActiveCodeByLongURL(const std::string& long_url, std::string& 
 
     if (!db_) return false;
 
-    std::string now = getCurrentTimestamp();
     std::string sql =
         "SELECT short_code FROM urls "
-        "WHERE long_url = ? AND (expiry IS NULL OR expiry > ?) "
+        "WHERE long_url = ? "
         "ORDER BY id ASC LIMIT 1;";
 
     sqlite3_stmt* stmt;
@@ -203,7 +174,6 @@ bool Database::getActiveCodeByLongURL(const std::string& long_url, std::string& 
     }
 
     sqlite3_bind_text(stmt, 1, long_url.c_str(), -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 2, now.c_str(), -1, SQLITE_STATIC);
 
     rc = sqlite3_step(stmt);
     if (rc == SQLITE_ROW) {
@@ -251,27 +221,6 @@ bool Database::incrementClickCount(const std::string& short_code, std::string& l
 
 bool Database::getAnalytics(const std::string& short_code, URLRecord& record) {
     return getURLByCode(short_code, record);
-}
-
-int Database::deleteExpiredURLs() {
-    std::lock_guard<std::mutex> guard(db_lock_);
-
-    if (!db_) return 0;
-
-    std::string now = getCurrentTimestamp();
-    std::string sql = "DELETE FROM urls WHERE expiry IS NOT NULL AND expiry < ?;";
-    sqlite3_stmt* stmt;
-
-    int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
-    if (rc != SQLITE_OK) return 0;
-
-    sqlite3_bind_text(stmt, 1, now.c_str(), -1, SQLITE_STATIC);
-    rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-
-    if (rc != SQLITE_DONE) return 0;
-
-    return sqlite3_changes(db_);
 }
 
 bool Database::deleteURL(const std::string& short_code) {
