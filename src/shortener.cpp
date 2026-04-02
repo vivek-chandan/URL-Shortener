@@ -4,21 +4,6 @@
 #include <algorithm>
 #include <random>
 
-static const std::string BASE62 =
-    "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-
-std::string encodeBase62(int num) {
-    std::string result;
-
-    while (num > 0) {
-        result += BASE62[num % 62];
-        num /= 62;
-    }
-
-    std::reverse(result.begin(), result.end());
-    return result;
-}
-
 URLShortener::URLShortener(std::shared_ptr<Database> db) 
     : db_(db) {}
 
@@ -26,11 +11,11 @@ std::string URLShortener::encodeBase62(int num) {
     if (num == 0) return "a";
 
     std::string result;
-     while (num > 0) {
-        result += BASE62[num % 62];
-        num /= 62;
+    while (num > 0) {
+        result += BASE62_CHARS[num % BASE62_SIZE];
+        num /= static_cast<int>(BASE62_SIZE);
     }
-     std::reverse(result.begin(), result.end());
+    std::reverse(result.begin(), result.end());
     return result;
 }
 
@@ -58,6 +43,10 @@ bool URLShortener::isValidURL(const std::string& url) {
 }
 
 bool URLShortener::shortenURL(const std::string& long_url, std::string& short_code) {
+    if (!db_) {
+        return false;
+    }
+
     // Validate URL
     if (!isValidURL(long_url)) {
         return false;
@@ -100,6 +89,10 @@ std::string URLShortener::generateRandomCode(size_t length) {
 }
 
 bool URLShortener::getLongURL(const std::string& short_code, std::string& long_url) {
+    if (!db_) {
+        return false;
+    }
+
     URLRecord record;
     if (!db_->getURLByCode(short_code, record)) {
         return false;
@@ -111,6 +104,10 @@ bool URLShortener::getLongURL(const std::string& short_code, std::string& long_u
 
 bool URLShortener::getCodeInfo(const std::string& short_code, int& clicks, 
                                std::string& created_at, std::string& last_accessed) {
+    if (!db_) {
+        return false;
+    }
+
     URLRecord record;
     if (!db_->getAnalytics(short_code, record)) {
         return false;
@@ -123,5 +120,9 @@ bool URLShortener::getCodeInfo(const std::string& short_code, int& clicks,
 }
 
 bool URLShortener::deleteShortURL(const std::string& short_code) {
+    if (!db_) {
+        return false;
+    }
+
     return db_->deleteURL(short_code);
 }
